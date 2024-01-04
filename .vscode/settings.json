@@ -1,0 +1,7 @@
+{
+    "rust-analyzer.checkOnSave.allTargets": false,
+    "rust-analyzer.cargo.target": "x86_64-unknown-unknown",
+    "rust-analyzer.server.extraEnv": {
+        "CARGO_TARGET_DIR": "/home/brunostjohn/zefir-os/target"
+    }
+}
