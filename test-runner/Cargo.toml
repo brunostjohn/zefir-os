@@ -1,0 +1,14 @@
+[package]
+name = "test_runner"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["bios", "uefi"]
+bios = ["bootloader/bios"]
+uefi = ["bootloader/uefi", "dep:ovmf-prebuilt"]
+
+[dependencies]
+strip-ansi-escapes = "0.1.1"
+ovmf-prebuilt = { version = "0.1.0-alpha.1", optional = true }
+bootloader = "0.11.5"

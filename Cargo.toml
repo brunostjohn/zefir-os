@@ -3,15 +3,15 @@ name = "zefir-os"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "zefir-os"
-test = false
+[build-dependencies]
+zefir-os-kernel = { path = "kernel", artifact = "bin", target = "x86_64-unknown-none" }
+bootloader = "0.11.5"
 
 [dependencies]
-bootloader = "0.9.8"
+ovmf-prebuilt = "0.1.0-alpha.1"
 
-[profile.dev]
-panic = "abort"
+[dev-dependencies]
+test_runner = { path = "test-runner" }
 
-[profile.release]
-panic = "abort"
+[workspace]
+members = ["kernel", "test-runner"]

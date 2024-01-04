@@ -1,20 +1,20 @@
-#![no_std]
-#![no_main]
+use std::process::Command;
 
-mod panic;
+fn main() {
+    let uefi_path = env!("UEFI_PATH");
+    let bios_path = env!("BIOS_PATH");
 
-static HELLO: &[u8] = b"Hello World!";
+    let uefi = true;
 
-#[no_mangle]
-pub extern "C" fn _start() -> ! {
-    let vga_buffer = 0xb8000 as *mut u8;
-    
-    for (i, &byte) in HELLO.iter().enumerate() {
-        unsafe {
-            *vga_buffer.offset(i as isize * 2) = byte;
-            *vga_buffer.offset(i as isize * 2 + 1) = 0xb;
-        }
+    let mut cmd = Command::new("qemu-system-x86_64");
+    if uefi {
+        cmd.arg("-bios").arg(ovmf_prebuilt::ovmf_pure_efi());
+        cmd.arg("-drive")
+            .arg(format!("format=raw,file={uefi_path}"));
+    } else {
+        cmd.arg("-drive")
+            .arg(format!("format=raw,file={bios_path}"));
     }
-
-    loop {}
+    let mut child = cmd.spawn().unwrap();
+    child.wait().unwrap();
 }
