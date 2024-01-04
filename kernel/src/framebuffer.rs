@@ -1,7 +1,4 @@
-use bootloader_api::{
-    info::{FrameBufferInfo, PixelFormat},
-    BootInfo,
-};
+use bootloader_api::info::{FrameBuffer, FrameBufferInfo, Optional, PixelFormat};
 use core::{
     fmt::{self, Write},
     ptr,
@@ -52,8 +49,8 @@ fn get_char_raster(c: char) -> RasterizedChar {
 
 pub static LOGGER: Mutex<Option<FrameBufferWriter>> = Mutex::new(None);
 
-pub fn init_print(boot_info: &'static mut BootInfo) {
-    let framebuffer = boot_info.framebuffer.as_mut().unwrap();
+pub fn init_print(framebuffer: &'static mut Optional<FrameBuffer>) {
+    let framebuffer = framebuffer.as_mut().unwrap();
     let info = framebuffer.info();
     let mut logger = LOGGER.lock();
     *logger = Some(FrameBufferWriter::new(framebuffer.buffer_mut(), info));
@@ -125,6 +122,25 @@ impl FrameBufferWriter {
         }
     }
 
+    fn write_char_color_rgb(&mut self, c: char, color: [u8; 3]) {
+        match c {
+            '\n' => self.newline(),
+            '\r' => self.carriage_return(),
+            c => {
+                let new_xpos = self.x_pos + font_constants::CHAR_RASTER_WIDTH;
+                if new_xpos >= self.width() {
+                    self.newline();
+                }
+                let new_ypos =
+                    self.y_pos + font_constants::CHAR_RASTER_HEIGHT.val() + BORDER_PADDING;
+                if new_ypos >= self.height() {
+                    self.clear();
+                }
+                self.write_rendered_char_color_rgb(get_char_raster(c), color);
+            }
+        }
+    }
+
     /// Prints a rendered char into the framebuffer.
     /// Updates `self.x_pos`.
     fn write_rendered_char(&mut self, rendered_char: RasterizedChar) {
@@ -136,11 +152,37 @@ impl FrameBufferWriter {
         self.x_pos += rendered_char.width() + LETTER_SPACING;
     }
 
+    fn write_rendered_char_color_rgb(&mut self, rendered_char: RasterizedChar, color: [u8; 3]) {
+        for (y, row) in rendered_char.raster().iter().enumerate() {
+            for (x, byte) in row.iter().enumerate() {
+                self.write_pixel_color_rgb(self.x_pos + x, self.y_pos + y, *byte, color);
+            }
+        }
+        self.x_pos += rendered_char.width() + LETTER_SPACING;
+    }
+
+    fn get_scaled_color(color: [u8; 3], intensity: u8) -> [u8; 3] {
+        let mut scaled_colors = [0; 3];
+        for i in 0..3 {
+            let color = color[i] as u16;
+            let intensity = intensity as u16;
+            let scaled_color = color * intensity;
+            let scaled_color = scaled_color / 255;
+            scaled_colors[i] = scaled_color as u8;
+        }
+        scaled_colors
+    }
+
     fn write_pixel(&mut self, x: usize, y: usize, intensity: u8) {
+        self.write_pixel_color_rgb(x, y, intensity, [255, 255, 255])
+    }
+
+    fn write_pixel_color_rgb(&mut self, x: usize, y: usize, intensity: u8, color: [u8; 3]) {
         let pixel_offset = y * self.info.stride + x;
+        let color = Self::get_scaled_color(color, intensity);
         let color = match self.info.pixel_format {
-            PixelFormat::Rgb => [intensity, intensity, intensity / 2, 0],
-            PixelFormat::Bgr => [intensity / 2, intensity, intensity, 0],
+            PixelFormat::Rgb => [color[0], color[1], color[2], 0],
+            PixelFormat::Bgr => [color[2], color[1], color[0], 0],
             PixelFormat::U8 => [if intensity > 200 { 0xf } else { 0 }, 0, 0, 0],
             other => {
                 // set a supported (but invalid) pixel format before panicking to avoid a double
@@ -182,9 +224,36 @@ macro_rules! println {
 
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
-    let mut locked = LOGGER.lock();
-    let locked = locked.as_mut();
-    if let Some(logger) = locked {
-        logger.write_fmt(args).unwrap();
-    }
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut locked = LOGGER.lock();
+        let locked = locked.as_mut();
+        if let Some(logger) = locked {
+            logger.write_fmt(args).unwrap();
+        }
+    });
+}
+
+#[doc(hidden)]
+pub fn _print_color_rgb(args: fmt::Arguments, color: [u8; 3]) {
+    x86_64::instructions::interrupts::without_interrupts(|| {
+        let mut locked = LOGGER.lock();
+        let locked = locked.as_mut();
+        if let Some(logger) = locked {
+            if let Some(chars) = args.as_str().map(|c| c.chars()) {
+                for c in chars {
+                    logger.write_char_color_rgb(c, color);
+                }
+            }
+        }
+    });
+}
+
+#[macro_export]
+macro_rules! print_color {
+    ($color:expr, $($arg:tt)*) => ($crate::framebuffer::_print_color_rgb(format_args!($($arg)*), $color));
+}
+
+#[macro_export]
+macro_rules! println_color {
+    ($color:expr, $($arg:tt)*) => ($crate::print_color!($color, "{}\n", format_args!($($arg)*)));
 }
